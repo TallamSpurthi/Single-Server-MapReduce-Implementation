@@ -1,0 +1,69 @@
+import json
+import os
+import time
+import hashlib
+
+"""
+#test case: word count
+#description: count the freq of each word in a given text file
+"""
+def map(partition, R, intermediateDir, q, fault=False):
+    """
+    outputs a list of key-value pairs: key - the word; value - 1 if this word appears once
+    expected outputs: [(word1, 1), (word2, 1), ... (wordn, 1)]
+
+    """
+    # each mapper is assigned one partition of the input file
+    pid = os.getpid()
+    words = json.load(open(partition)).split(" ")
+    occurences = {}
+    for word in words:
+        #each word is given a unique idx across processes
+        hashed_string = hashlib.sha256(word.encode())
+        val = int.from_bytes(hashed_string.digest(), 'big')
+        idx = val % R
+        
+        #append (k,v) pairs to the dic
+        if idx not in occurences:
+            occurences[idx] = []
+        occurences[idx].append((word, 1)) #in this case, we use each word as the key
+    #if it is faulty process, then sleep for a very long time to simulate a behaviour similar to not responding indefinitely.
+    if fault == True:
+        time.sleep(1000)
+        
+    for idx in occurences:
+        # create the intermediate file and partition it into R pieces based on each word's index
+        # each reducer will only work on one piece of data from this intremediate file
+        # this is to make sure that each key will only be assgined to one reducer
+        filename = intermediateDir + "Mapper_" + str(pid) + '_intermediate_file_'+str(idx)+'.txt'
+        os.makedirs(intermediateDir, exist_ok=True)
+        fp = open(filename, "w")
+        json.dump(occurences[idx], fp)
+        fp.close()
+        q.put([pid, filename])
+
+def reduce(files, outputDir,fault=False):
+    """
+    Outputs a single value together with the provided key:
+        key - the word; value - n, the freq of the word in the given text file
+    expected outputs: [(word1, m_1), (word2, m_2), ... (wordn,m_n)]
+
+    """
+    pid = os.getpid()
+    output = {}
+    #if it is faulty process, then sleep for a very long time to simulate a behaviour similar to not responding indefinitely.
+    if fault == True:
+        time.sleep(1000)
+    for filename in files:
+        fp = open(filename, "r")
+        words = json.load(fp)
+        fp.close()
+        #tally the number of words of each word and return this dic as the final output
+        for word,count in words:
+            if word not in output:
+                output[word] = 0
+            output[word] += 1
+    os.makedirs(outputDir, exist_ok=True)
+    output_file = open(outputDir + "Reducer_" + str(pid) + '_output.txt', "w+")
+    json.dump(output, output_file)
+    output_file.close()
